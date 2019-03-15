@@ -1,0 +1,338 @@
+---
+title: "HW8document"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(digits=3, width=70)
+library(zoo)
+library(corrplot)
+library(IntroCompFinR)
+library(boot)
+
+lab9.df = read.csv("C:/Users/calfa/Documents/ECON 424/econ424lab9returns.csv",
+                  stringsAsFactors=F)
+colnames(lab9.df)
+
+#Create zoo object from data and dates in lab9.df
+lab9.z = zoo(x=lab9.df[, -1], 
+             order.by=as.yearmon(lab9.df[, 1], format="%b-%y"))
+start(lab9.z)
+end(lab9.z)
+colnames(lab9.z)
+
+ret.mat = coredata(lab9.z)
+
+```
+
+# 1 Muhat estimates and SD values
+```{r CER model parameter estimates, echo = FALSE}
+
+muhat.vals = apply(lab9.z, 2, mean)
+muhat.vals
+sigma2hat.vals = apply(lab9.z, 2, var)
+sigma2hat.vals
+sigmahat.vals = apply(lab9.z, 2, sd)
+sigmahat.vals
+
+```
+
+## 1 - Covariance and correlation matrices
+```{r cov and cor mat, echo =FALSE}
+cov.mat = var(lab9.z)
+cov.mat
+cor.mat = cor(lab9.z)
+cor.mat
+```
+
+
+# 2 Plot risk return tradeoff 
+
+```{r risk return tradeoff, echo = FALSE}
+plot( sigmahat.vals, muhat.vals)
+
+```
+
+# 2a - Sharpe ratio computation
+
+```{r sharpe ratio, echo = FALSE}
+rf=0.005
+
+
+sharpeRatio.boot = function(x, idx, risk.free) {
+muhat = mean(x[idx])
+sigmahat = sd(x[idx])
+sharpeRatio = (muhat - risk.free)/sigmahat
+sharpeRatio
+}
+
+sharpe.boeing.boot <- boot(ret.mat[,"Boeing"], statistic=sharpeRatio.boot, R=999, risk.free=rf)
+sharpe.microsoft.boot <- boot(ret.mat[,"Microsoft"], statistic=sharpeRatio.boot, R=999, risk.free=rf)
+sharpe.nordstrom.boot <- boot(ret.mat[,"Nordstrom"], statistic=sharpeRatio.boot, R=999, risk.free=rf)
+sharpe.starbucks.boot <- boot(ret.mat[,"Starbucks"], statistic=sharpeRatio.boot, R=999, risk.free=rf)
+
+
+sharpe.boot.vals <- rbind(mean(sharpe.boeing.boot$t),
+mean(sharpe.microsoft.boot$t),
+mean(sharpe.nordstrom.boot$t),
+mean(sharpe.starbucks.boot$t))
+rownames(sharpe.boot.vals) <- c("boeing", "msft", "nordstrom", "starbucks")
+colnames(sharpe.boot.vals) <- "Sharpe ratios"
+
+
+boot.sd.vals <- rbind(sd(sharpe.boeing.boot$t)
+,sd(sharpe.microsoft.boot$t)
+,sd(sharpe.nordstrom.boot$t)
+,sd(sharpe.starbucks.boot$t))
+
+rownames(boot.sd.vals) <- c("boeing", "msft", "nordstrom", "starbucks")
+colnames(boot.sd.vals) <- "boot standard error"
+
+sharpe.boot.vals
+boot.sd.vals
+
+
+```
+
+Microsoft has the highest Sharpe ratio which is 0.3809. 
+
+# 2b Bootstrap estimates of SE and 95% confidence intervals for Sharpe ratios
+
+```{r bootstrap CI, echo = FALSE}
+
+ci.sharpe.boeing.boot <-boot.ci(sharpe.boeing.boot, conf = 0.95, type = c("norm","perc"))
+ci.sharpe.microsoft.boot <-boot.ci(sharpe.microsoft.boot, conf = 0.95, type = c("norm","perc"))
+ci.sharpe.nordstrom.boot <-boot.ci(sharpe.nordstrom.boot, conf = 0.95, type = c("norm","perc"))
+ci.sharpe.starbucks.boot <-boot.ci(sharpe.starbucks.boot, conf = 0.95, type = c("norm","perc"))
+
+
+ci.sharpe.boot <- rbind(ci.sharpe.boeing.boot$normal,ci.sharpe.microsoft.boot$normal, ci.sharpe.nordstrom.boot$normal,ci.sharpe.starbucks.boot$normal)
+
+rownames(ci.sharpe.boot) <- c("boeing", "msft", "nordstrom", "starbucks")
+colnames(ci.sharpe.boot) <- c("conf", "lower bound", "upper bound")
+
+ci.sharpe.boot
+
+```
+
+The estimate for the sharpe ratio for msft is estimated well because it only contains positive values. The 95% confidence interval of the other 3 asset's sharpe values contain negative and positive values, which indicates it's not estimated well since there's a wider range of values it could take on. 
+
+# 3a - Compute Global minimum variance portfolio with short sales 
+
+```{r global min var, echo=FALSE}
+# compute global minimum variance portfolio with short sales
+gmin.port = globalMin.portfolio(muhat.vals, cov.mat)
+gmin.port
+plot(gmin.port, col="blue")
+
+
+B = 1000
+muhat.boeing.boot = rep(0, B)
+muhat.nord.boot = rep(0, B)
+muhat.sbux.boot = rep(0, B)
+muhat.msft.boot = rep(0, B)
+n.obs = nrow(lab9.df)
+set.seed(123)
+for (i in 1:B) {
+  boot.boeing = sample(lab9.df[,2], n.obs, replace=TRUE)
+  muhat.boeing.boot[i] = mean(boot.boeing)
+  boot.nord = sample(lab9.df[,3], n.obs, replace=TRUE)
+  muhat.nord.boot[i] = mean(boot.nord)
+  boot.sbux = sample(lab9.df[,4], n.obs, replace=TRUE)
+  muhat.sbux.boot[i] = mean(boot.sbux)
+  boot.msft = sample(lab9.df[,5], n.obs, replace=TRUE)
+  muhat.msft.boot[i] = mean(boot.msft)
+  muhat.vals.temp=cbind(muhat.boeing.boot[i],muhat.nord.boot[i], muhat.sbux.boot[i],muhat.msft.boot[i])
+  boot.temp=cbind(boot.boeing,boot.nord,boot.sbux, boot.msft)
+  cov.mat.temp=var(boot.temp)
+  gmin.temp=globalMin.portfolio(muhat.vals.temp,cov.mat.temp)
+}
+```
+
+# 3a - Bootstrap SE of global minimum variance portfolio
+
+```{r bootstrap se, echo=FALSE}
+##bootstrap se
+se.boeing.boot = sd(muhat.boeing.boot)
+se.msft.boot = sd(muhat.msft.boot)
+se.nord.boot = sd(muhat.nord.boot)
+se.sbux.boot = sd(muhat.sbux.boot)
+
+se.boot.vals <- c(se.boeing.boot, se.nord.boot, se.sbux.boot, se.msft.boot)
+rbind(muhat.vals, se.boot.vals)
+
+```
+We see that the magnitude of the SE's are rather large. The SE values are the same size as the estimates, and for Nordstrom the SE magnitude is even greater than the estimate. This means the values are imprecise. 
+
+# 3b bootstrap confidence interval of global minimum variance portfolio
+```{r confidence intervals, echo = FALSE}
+
+##95% confidence intervals
+lower.boeing.boot = mean(boot.boeing) - 2*se.boeing.boot
+upper.boeing.boot = mean(boot.boeing) + 2*se.boeing.boot
+width.boeing.boot = upper.boeing.boot - lower.boeing.boot
+ci.boeing.boot <- rbind(lower.boeing.boot, upper.boeing.boot, width.boeing.boot)
+
+
+lower.msft.boot = mean(boot.msft) - 2*se.msft.boot
+upper.msft.boot = mean(boot.msft) + 2*se.msft.boot
+width.msft.boot = upper.msft.boot - lower.msft.boot
+ci.msft.boot <- rbind(lower.msft.boot, upper.msft.boot, width.msft.boot)
+
+
+lower.nord.boot = mean(boot.nord) - 2*se.nord.boot
+upper.nord.boot = mean(boot.nord) + 2*se.nord.boot
+width.nord.boot = upper.nord.boot - lower.nord.boot
+ci.nord.boot <- rbind(lower.nord.boot, upper.nord.boot, width.nord.boot)
+
+
+lower.sbux.boot = mean(boot.sbux) - 2*se.sbux.boot
+upper.sbux.boot = mean(boot.sbux) + 2*se.sbux.boot
+width.sbux.boot = upper.sbux.boot - lower.sbux.boot
+ci.sbux.boot <- rbind(lower.sbux.boot, upper.sbux.boot, width.sbux.boot)
+
+ci.boeing.boot
+ci.msft.boot
+ci.nord.boot
+ci.sbux.boot
+```
+
+The confidence interval for MSFT appears to be rather tight, and contains only positive values, so it's precise. The other 3 assets have imprecise estimates since we see that they contain both negative and positive values in the interval, which shows uncertainty and there1.portore the estimates are imprecise.
+ 
+## 4 - Compute efficient portfolio with target return equal to highest average return
+```{r target return, echo = FALSE}
+
+# compute efficient portfolio with target return equal to highest average return
+mu.target = max(muhat.vals)
+e1.port = efficient.portfolio(muhat.vals, cov.mat, mu.target)
+e1.port
+plot(e1.port, col="blue")
+
+
+# compute covariance b/w min var portfolio and efficient port
+t(gmin.port$weights)%*%cov.mat%*%e1.port$weights
+
+```
+
+Nordstrom has negative weight in this portfolio which is -0.185. The covariance between the global minimum variance portfolio and the above efficient portfolio is .00351. 
+
+# 5 Compute efficient portfolio with target return equal to highest average return with NO SHORT SALES
+```{r , echo = FALSE}
+
+# compute efficient portfolio with target return equal to highest average return
+# but do not allow short sales
+mu.target = max(muhat.vals)
+e1.noshorts.port = efficient.portfolio(muhat.vals, cov.mat, mu.target, shorts=FALSE)
+e1.noshorts.port
+plot(e1.noshorts.port, col="blue")
+
+
+# compute covariance b/w min var portfolio and efficient port with no short sales
+t(gmin.port$weights)%*%cov.mat%*%e1.noshorts.port$weights
+
+```
+
+In this portfolio, there are no negative weights. We put all our investment into Microsoft. The covariance between the global minimum variance portfolio and the above efficient portfolio is also .00351. 
+
+# 6 Compute ER, Variance, and SD for efficient portfolios as convex combination of Global min variance portfolio and efficient portfolio computed in Question 4
+```{r convex combinations}
+ef <- efficient.frontier(muhat.vals, cov.mat, alpha.min=-1, alpha.max=1, nport=20)
+attributes(ef)
+
+ef$er
+ef$sd
+ef.var = (ef$sd)^2
+ef.var
+
+```
+
+# 7 - Markowitz bullet
+```{r markowitz, echo = FALSE}
+
+plot(ef, plot.assets=TRUE, col="blue", pch=16)
+points(gmin.port$sd, gmin.port$er, col="green", pch=16, cex=2)
+points(e1.port$sd, e1.port$er, col="red", pch=16, cex=2)
+text(gmin.port$sd, gmin.port$er, labels="GLOBAL MIN", pos=2)
+text(e1.port$sd, e1.port$er, labels="EFFICIENT PORTFOLIO", pos=2)
+
+```
+
+# 8 - Tangency portfolio assuming Risk free rate is 0.005 
+
+```{r tangency port rf, echo = FALSE}
+
+# compute tangency portfolio with rf = 0.005
+tan.port = tangency.portfolio(muhat.vals, cov.mat, risk.free=0.005)
+summary(tan.port)
+plot(tan.port, col="blue")
+
+```
+
+Yes there are negative weights for Nordstrom at -0.3166. This means that we should short sell 31.6% Nordstrom stock. 
+
+# 9 - Tangency portfolio assuming Risk free rate is 0.005 with NO SHORT SALES
+
+```{r no shorts rf , echo = FALSE}
+
+tan.noshorts.port = tangency.portfolio(muhat.vals, cov.mat, risk.free=0.005, shorts=FALSE)
+summary(tan.noshorts.port)
+plot(tan.noshorts.port, col="blue")
+```
+
+Now there are no negative weights in this portfolio. We simply do not invest anything into Nordstrom and only invest in the other 3 assets. 
+
+# 10 - Plot efficient portfolios that are combinations of T-Bills and tangency portfolio 
+```{r tbills and tan, echo = FALSE}
+
+
+plot(ef, plot.assets=TRUE, col="blue", pch=16)
+points(tan.port$sd, tan.port$er, col="red", pch=16, cex=2)
+text(tan.port$sd, tan.port$er, labels="TANGENCY", pos=2)
+sr.tan = (tan.port$er - rf)/tan.port$sd
+abline(a=rf, b=sr.tan, col="green", lwd=2)
+
+
+
+```
+
+# 11 - Efficient portfolio that are combinations of T-Bills and tangency portfolio with same SD as SBUX
+```{r tbills and tan same as SD sbux, echo = FALSE}
+# efficient portfolio of T-bills + tangency that has the same SD as sbux
+names(tan.port)
+x.tan = sigmahat.vals["Starbucks"]/tan.port$sd
+x.tan
+mu.pe = 0.005 + x.tan*(tan.port$er - 0.005)
+mu.pe
+
+
+plot(ef, plot.assets=TRUE, col="blue", pch=16)
+points(tan.port$sd, tan.port$er, col="red", pch=16, cex=2)
+points(sigmahat.vals["Starbucks"], mu.pe, col="green", pch=16, cex=2)
+text(tan.port$sd, tan.port$er, labels="TANGENCY", pos=2)
+text(sigmahat.vals["Starbucks"], mu.pe, labels="efficient portfolio", pos=2)
+sr.tan = (tan.port$er - rf)/tan.port$sd
+abline(a=rf, b=sr.tan, col="green", lwd=2)
+```
+
+Expected return is 6.4% on the portfolio. 
+
+# 12 VaR analysis - 1% and 5% Value at Risk for a One month investment of $50,000 in the Four Stocks and the Global Minimum Variance Portfolio 
+```{r var analysis, echo = FALSE}
+w0 = 50000
+qhat.05 = muhat.vals + sigmahat.vals*qnorm(0.05)
+qhat.01 = muhat.vals + sigmahat.vals*qnorm(0.01)
+qhatGmin.05 = gmin.port$er + gmin.port$sd*qnorm(0.05)
+qhatGmin.01 = gmin.port$er + gmin.port$sd*qnorm(0.01)
+VaR.05 = w0*qhat.05
+VaR.01 = w0*qhat.01
+VaRgmin.05 = w0*qhatGmin.05
+VaRgmin.01 = w0*qhatGmin.01
+
+
+
+rbind(VaR.05,VaR.01) 
+rbind(VaRgmin.05, VaRgmin.01)
+
+```
